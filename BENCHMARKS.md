@@ -1,9 +1,9 @@
 # Benchmarks
 
-Every change is measured against unmodified upstream (`bench/dist/baseline`, built from the commit this branch
+Every change is measured against unmodified upstream (`dist/baseline`, built from the commit this branch
 started at) with the same harness, same assets, same machine, in the same browser session.
 
-To reproduce any of this on your own machine, see [`bench/README.md`](bench/README.md) — it covers setup, the
+To reproduce any of this on your own machine, see [`README.md`](README.md) — it covers setup, the
 runners, and the environment traps that will otherwise hand you wrong numbers. Numbers below are from one
 machine and are not portable to another; compare cases within a run, never across machines.
 
@@ -11,12 +11,12 @@ machine and are not portable to another; compare cases within a run, never acros
 
 Two harnesses, because the changes fall into two groups that need different measurements.
 
-**Resize** — `bench/pages/resize.html`, driven by `bench/run.mjs`. Plays the clip normally, drives a 4 s sweep of the
+**Resize** — `pages/resize.html`, driven by `run.mjs`. Plays the clip normally, drives a 4 s sweep of the
 player width (100% → 55% → 100%, a new width every animation frame), then settles for 1.2 s. Reports libass
 reconfigures, dropped/mistimed subtitle frames, worker RPC count, and the render round-trip in ms measured by
 wrapping `_demandRender` on the prototype.
 
-**Throughput** — `bench/pages/throughput.html`, driven by `bench/throughput.mjs`. Video paused on a fixed frame, then
+**Throughput** — `pages/throughput.html`, driven by `throughput.mjs`. Video paused on a fixed frame, then
 `manualRender(..., repaint=true)` over a swept `mediaTime` across the densest window of the track. Isolates
 subtitle render cost from video decode. Reports avg/p50/p95/p99/max over 400 frames after 120 warm-up frames.
 
@@ -28,7 +28,7 @@ libass can never skip an unchanged frame — this is the worst case, not the typ
 Note that ASS carries no frame rate of its own: event times are absolute (`H:MM:SS.cc`), and libass is sampled
 at whatever instant `ass_render_frame` is given. The cadence comes entirely from the video.
 
-**Colour** — `bench/colour.mjs`. Reads back the full canvas and compares lit-pixel count, mean RGBA and an FNV
+**Colour** — `colour.mjs`. Reads back the full canvas and compares lit-pixel count, mean RGBA and an FNV
 hash across builds, at three frames, both with an identity colour matrix and with a forced non-identity
 BT709→BT601 conversion, so the colour-matrix and premultiplied-alpha paths are actually exercised.
 
@@ -57,7 +57,7 @@ exactly this reason.
 > Every timing comparison in this file was taken with the affected method and needs re-measuring with the
 > render size pinned (`MRH=540`) before its numbers can be read as code-vs-code. Counts — reconfigures,
 > dropped frames, worker messages — are unaffected, because they are not per-pixel.
-> `bench/throughput.mjs` and `bench/run.mjs` now fail the run when cases rasterize different sizes.
+> `throughput.mjs` and `run.mjs` now fail the run when cases rasterize different sizes.
 
 ### Workload
 
@@ -122,7 +122,7 @@ diluted by a large number of cheap calls against caches that had just been dumpe
 
 Aggregate render time is the honest measure, and it moves the other way: **1477 ms → 369 ms, a 75%
 reduction**. Reducing the number of renders is the whole point of the change, so a per-render cost is exactly
-the wrong unit to judge it by. `bench/run.mjs` now reports `totalRenderMs` alongside the average so the trap
+the wrong unit to judge it by. `run.mjs` now reports `totalRenderMs` alongside the average so the trap
 is not re-set for the next reader.
 
 The atlas renderer measured ~75% slower than the array path here (2.67 ms vs 1.24 ms), independently
@@ -145,7 +145,7 @@ reconfigure when the exact size lands.
 
 ### Fullscreen (Fullscreen API, trusted gesture, two enter/exit cycles)
 
-`bench/pages/fullscreen.html` + `bench/fullscreen.mjs`. Real `requestFullscreen` from a trusted click, not a resized
+`pages/fullscreen.html` + `fullscreen.mjs`. Real `requestFullscreen` from a trusted click, not a resized
 div: `document.fullscreenElement` is set, `:fullscreen` styles apply, and the containing block and
 `offsetParent` change, which a div resize does not reproduce. Two full enter/exit cycles.
 
@@ -154,7 +154,7 @@ takeover. Under Playwright the window never grows to the display (inner stayed 1
 screen, with browser chrome still present); `viewport: null` and `--start-fullscreen` both failed to change
 that, because Playwright sizes the window over CDP after launch.
 
-That gap was closed by hand instead. `bench/pages/fullscreen.html` carries a live HUD (screen size, devicePixelRatio,
+That gap was closed by hand instead. `pages/fullscreen.html` carries a live HUD (screen size, devicePixelRatio,
 window inner/chrome, video box, canvas box, backing store, misalignment, reconfigure and drop counts) and was
 run in ordinary Chrome against both builds, where `requestFullscreen` does take over the display. Manually
 confirmed working.
@@ -285,7 +285,7 @@ On a thermally constrained or GPU-contended device that trade may well be the wr
 
 ### Pixel identity across every track
 
-`bench/pages/matrix.html` + `bench/matrix.mjs`. All six upstream benchmark tracks, canvas-only and driven by
+`pages/matrix.html` + `matrix.mjs`. All six upstream benchmark tracks, canvas-only and driven by
 `manualRender` so it is deterministic and needs no video decode, 24 evenly spaced timestamps per track derived
 from each track's own Dialogue range, both builds pinned to the same render size. Hash of the visible pixels
 compared frame by frame, plus screenshots every 8th frame.
