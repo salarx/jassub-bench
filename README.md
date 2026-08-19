@@ -33,6 +33,11 @@ node all.mjs                            # everything, or any single runner below
 Pointing `JASSUB_REPO` at a working checkout is the fast path when iterating on jassub itself — the harness
 builds whatever refs that checkout can resolve, including local branches.
 
+In the cloned cache (no `JASSUB_REPO`), branch names resolve through `origin/`. `git fetch` moves
+`origin/main` but leaves a local `main` where it was, so a rewritten upstream branch would otherwise build
+whatever the stale local ref still pointed at — and benchmark it cleanly. Tags and raw SHAs are used as
+given. The ref actually built is printed, so check it matches what you meant.
+
 Everything above is plain Node and runs the same on Windows — no WSL, no container. The one difference is
 that `&` does not background a command in PowerShell, so start the server in its own terminal:
 

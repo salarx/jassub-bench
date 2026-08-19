@@ -75,7 +75,7 @@ const jassubCheckout = () => {
   const existing = process.env.JASSUB_REPO
   if (existing) {
     console.log(`jassub: using ${existing}`)
-    return existing
+    return { repo: existing, mirror: false }
   }
   const repo = join(WORK, 'jassub')
   if (existsSync(join(repo, '.git'))) {
@@ -86,7 +86,24 @@ const jassubCheckout = () => {
     console.log(`jassub: cloning ${JASSUB_REMOTE}`)
     sh('git', ['clone', '--no-checkout', JASSUB_REMOTE, repo])
   }
-  return repo
+  return { repo, mirror: true }
+}
+
+// In the cached clone, `git fetch` moves origin/<branch> but leaves the local branch of the same name where
+// it was. Resolve branch names through origin/ there, or a rewritten upstream branch silently builds
+// whatever the local ref still points at — a stale tree that benchmarks clean and means nothing.
+// A checkout supplied via JASSUB_REPO is the caller's own, so its local refs are taken at face value.
+const resolveRef = (repo, ref, mirror) => {
+  if (!mirror) return ref
+  try {
+    const sha = execFileSync('git', ['rev-parse', '--verify', '--quiet', `origin/${ref}`],
+      { cwd: repo, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    if (sha) {
+      console.log(`  ${ref} -> origin/${ref} (${sha.slice(0, 7)})`)
+      return sha
+    }
+  } catch { /* not a remote branch: a tag or raw SHA, use as given */ }
+  return ref
 }
 
 // Build one ref of jassub into dist/<label>.
@@ -132,8 +149,8 @@ const buildRef = (repo, ref, label) => {
 const args = process.argv.slice(2)
 await getAssets()
 if (!args.includes('--assets')) {
-  const repo = jassubCheckout()
-  buildRef(repo, process.env.PATCHED_REF || 'main', 'patched')
-  buildRef(repo, process.env.BASELINE_REF || UPSTREAM_BASE, 'baseline')
+  const { repo, mirror } = jassubCheckout()
+  buildRef(repo, resolveRef(repo, process.env.PATCHED_REF || 'main', mirror), 'patched')
+  buildRef(repo, resolveRef(repo, process.env.BASELINE_REF || UPSTREAM_BASE, mirror), 'baseline')
   console.log('\nready. start the server with:  npx vite --port 5199 --strictPort')
 }
