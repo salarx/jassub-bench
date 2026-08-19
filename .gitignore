@@ -1,0 +1,11 @@
+node_modules/
+
+# everything the harness builds or downloads, none of it sources
+dist/
+assets/
+shots/
+work/
+last-run.json
+colour.json
+matrix.json
+package-lock.json
