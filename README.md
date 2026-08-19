@@ -14,7 +14,8 @@ else. Every runner prints a machine fingerprint so it is obvious when two result
 ## Run it
 
 ```shell
-npm install                             # if it reports blocked postinstalls: npm approve-scripts
+npm ci                                  # lockfile is committed on purpose: see below
+                                        # if it reports blocked postinstalls: npm approve-scripts
 node prepare.mjs                        # clone jassub, fetch assets, build both refs
 npx vite --port 5199 --strictPort &     # must be this server: it sets the COOP/COEP headers
 node all.mjs                            # everything, or any single runner below
@@ -40,6 +41,11 @@ Start-Process npx -ArgumentList 'vite','--port','5199','--strictPort'
 node prepare.mjs
 node all.mjs
 ```
+
+`package-lock.json` is committed and `npm ci` is the documented install, because the harness measures
+timings: a floating playwright or vite version changes the browser and the server between runs and quietly
+makes two result sets incomparable. (jassub itself ignores `package-lock.json` — it is a pnpm repo, and two
+lockfiles for one tree only drift.)
 
 Numbers from a Windows host are not comparable with numbers from a mac — different GPU, driver and
 compositor. Compare cases within one machine's run, and quote that machine's fingerprint.
