@@ -79,6 +79,7 @@ Assets (~45 MB of the upstream demo's own video, subtitles and fonts) are fetche
 | `fullscreen.mjs` | element fullscreen, OS-level display takeover, and moves across attached displays |
 | `parallel.mjs` | throughput of a pool of single-threaded jassub instances in Node worker_threads |
 | `renderers.mjs` | per-frame cost and pixel hash of each renderer backend, in Chrome |
+| `diff.mjs` | how far apart two renderers are on one frame: pixel count, channel, magnitude |
 
 Useful env vars: `RUNS` (repetitions, default 3), `CASES` (which builds/renderers), `TRACKS`, `MRH`.
 

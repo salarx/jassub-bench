@@ -79,6 +79,21 @@ for (const track of TRACKS) {
 await browser.close()
 writeFileSync(join(HERE, 'matrix.json'), JSON.stringify(results, null, 2))
 
+// Deltas that have been chased to the bottom and accepted, keyed by track and frame index.
+//
+// The hash is exact on purpose - a tolerance here would have hidden two real bugs while this was written -
+// so an accepted difference is listed rather than tolerated, and printed every run. Anything not on this
+// list still fails. Re-verify with bench/diff on the frame if one of these ever changes shape.
+const KNOWN = [
+  {
+    track: 'kusriya',
+    frame: 13,
+    cases: ['branch-auto', 'gpubuf'],
+    why: 'storage-buffer renderer: 1 pixel, blue channel, 1/255. f32(b)/255 in the shader against a hardware R8 fetch, over 624 overlapping blends.'
+  }
+]
+const known = (track, label, i) => KNOWN.find(k => k.track === track && k.frame === i && k.cases.includes(label))
+
 // compare every case against upstream, frame by frame
 console.log('\npixel identity vs upstream (per track)')
 console.log(`${'track'.padEnd(10)} ${'case'.padEnd(17)} ${'frames'.padStart(7)} ${'nonEmpty'.padStart(9)} ${'mismatch'.padStart(9)}  verdict`)
@@ -90,9 +105,13 @@ for (const track of TRACKS) {
     if (!f) { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${'-'.padStart(7)} ${'-'.padStart(9)} ${'-'.padStart(9)}  FAILED`); anyDiff = true; continue }
     const nonEmpty = f.filter(x => x.lit > 0).length
     if (!ref || c.label === 'upstream') { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${'ref'.padStart(9)}  -`); continue }
-    const mism = f.filter((x, i) => !ref[i] || x.hash !== ref[i].hash).length
+    const diffs = f.map((x, i) => (!ref[i] || x.hash !== ref[i].hash) ? i : -1).filter(i => i >= 0)
+    const accepted = diffs.filter(i => known(track, c.label, i))
+    const mism = diffs.length - accepted.length
     if (mism) anyDiff = true
-    console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${String(mism).padStart(9)}  ${mism ? 'DIFFERS' : 'identical'}`)
+    const note = accepted.length ? ` (+${accepted.length} known)` : ''
+    console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${String(mism).padStart(9)}  ${mism ? 'DIFFERS' : 'identical'}${note}`)
+    for (const i of accepted) console.log(`${' '.repeat(28)}known: frame ${i} - ${known(track, c.label, i).why}`)
   }
 }
 console.log(anyDiff
