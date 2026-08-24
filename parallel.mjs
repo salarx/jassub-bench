@@ -21,6 +21,10 @@ const FRAMES = +(process.env.FRAMES || 60)
 const W = +(process.env.W || 1920)
 const H = +(process.env.H || 1080)
 const FONTS = ['architext.regular.ttf', 'FRABK.TTF', 'Lato-Regular.ttf', 'arial.ttf', 'chawp.otf', 'SlatePro-Medium.otf', 'allison-script.regular.otf']
+// libass threads *per instance*. These multiply with the worker count: eight workers each asking for eight
+// threads is 64 on a 12-core box, and the two levels of parallelism just contend. THREADS=1 measures the
+// pool on its own.
+const THREADS = process.env.THREADS ? +process.env.THREADS : undefined
 
 const timeFor = i => 248 + (i % 20) * 0.25
 
@@ -31,7 +35,8 @@ if (!isMainThread) {
     subContent: await readFile(join(ASSETS, 'subtitles', TRACK), 'utf8'),
     width: W,
     height: H,
-    fonts: FONTS.map(f => `file://${join(ASSETS, 'fonts', f)}`)
+    fonts: FONTS.map(f => `file://${join(ASSETS, 'fonts', f)}`),
+    ...(THREADS ? { threads: THREADS } : {})
   })
   // warm up before the clock starts, so JIT and font resolution are not in the measurement
   for (let i = 0; i < 3; i++) await subs.renderFrame(times[0])
@@ -80,7 +85,7 @@ const run = async n => {
 
 const cores = os.cpus().length
 const counts = process.env.WORKERS ? [+process.env.WORKERS] : [1, 2, 4, Math.min(8, cores)]
-console.log(`${TRACK} ${W}x${H}, ${FRAMES} frames, ${cores} cores\n`)
+console.log(`${TRACK} ${W}x${H}, ${FRAMES} frames, ${cores} cores, libass threads/instance: ${THREADS ?? 'default'}\n`)
 console.log('workers   wall(ms)   ms/frame   fps    speedup   lit')
 let base = null
 for (const n of counts) {
