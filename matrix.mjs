@@ -18,9 +18,8 @@ const CASES = [
   { label: 'branch-unpacked', build: 'patched', renderer: 'webgl2', packed: '0' },
   { label: 'branch-webgpu', build: 'patched', renderer: 'webgpu', packed: '1' },
   { label: 'branch-atlas', build: 'patched', renderer: 'webgl2-atlas', packed: '1' }
-  // 'webgpu-buffer' is deliberately absent: it renders one kusriya frame differently from every other
-  // backend and is not shipped as a default. Add it back when chasing that, rather than leaving the whole
-  // suite red for a renderer nobody gets by accident.
+  // 'webgpu-buffer' has no row of its own because it is what 'branch-auto' now selects - it is the shipped
+  // default. Its one-frame kusriya difference is carried in KNOWN below rather than as a missing case.
 ]
 const EXTRA = (process.env.EXTRA_CASES || '').split(',').filter(Boolean).map(x => {
   const [label, build, renderer, packed] = x.split(':')
@@ -29,9 +28,12 @@ const EXTRA = (process.env.EXTRA_CASES || '').split(',').filter(Boolean).map(x =
 CASES.push(...EXTRA)
 
 const SAMPLES = +(process.env.SAMPLES || 24)
-// Same trap the other runners warn about: unpinned, the builds can rasterise at different resolutions and
-// every frame reads as a mismatch. Here it turns a passing check into a false failure, so say so loudly.
-if (!process.env.MRH) console.error('MRH is not set: builds may rasterise at different sizes and every frame will "differ". Re-run with MRH=540.')
+// Same trap the other runners warn about, with a sharper edge here. Unpinned, this page renders at the full
+// device-pixel size of its box - 1920x1080 at deviceScaleFactor 2 - and the upstream baseline draws nothing
+// at all at that size, on every renderer it offers. So every frame reads as a mismatch, and the report
+// blames the branch for a blank upstream. Pinning the height sidesteps it; the branch itself renders
+// correctly at either size (see backends.mjs, which asserts exactly that).
+if (!process.env.MRH) console.error('MRH is not set: this renders at 1920x1080, where the upstream baseline draws nothing and every frame will "differ". Re-run with MRH=540.')
 // screenshots are the one part here that needs a human to judge, so they are opt-in.
 // the hash comparison below is fully mechanical and is what decides pass/fail.
 const SHOTS = process.env.SHOTS === '1'

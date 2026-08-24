@@ -20,7 +20,8 @@ const SUITES = [
   { name: 'resource', script: 'resource.mjs', kind: 'numbers', what: 'CPU per process, JS heap' },
   { name: 'fullscreen', script: 'fullscreen.mjs', kind: 'check', what: 'alignment across element fullscreen, display takeover and display moves' },
   { name: 'colour', script: 'colour.mjs', kind: 'check', what: 'colour-matrix and premultiplied-alpha output' },
-  { name: 'matrix', script: 'matrix.mjs', kind: 'check', what: 'pixel identity across all tracks and backends', mrh: '540' }
+  { name: 'matrix', script: 'matrix.mjs', kind: 'check', what: 'pixel identity across all tracks and backends', mrh: '540' },
+  { name: 'backends', script: 'backends.mjs', kind: 'check', what: 'node/bun/deno agree with each other, and no frame is lost at the larger render size' }
 ]
 
 // `matrix` compares pixels, so both builds must rasterise at the same size or every frame reads as a

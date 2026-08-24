@@ -18,6 +18,11 @@ const TRACK = p.get('track') || 'beastars'
 const SAMPLES = +(p.get('samples') || 24)
 const MRH = +(p.get('mrh') || 0)
 const PSF = +(p.get('psf') || 0)
+// Milliseconds to wait after manualRender before hashing. manualRender resolves when the frame has been
+// handed to the worker, not when it has landed on the canvas, so this has to cover libass' actual render.
+// It is a knob because the time needed scales with the render size: at 1920x1080 an unwarmed upstream build
+// needs well over 90ms, and sampling too early reports a blank canvas as a lost frame.
+const SETTLE = +(p.get('settle') || 90)
 
 const log = m => { document.getElementById('log').textContent = String(m); window.__s = String(m) }
 window.addEventListener('unhandledrejection', e => log('REJ ' + (e.reason?.stack || e.reason)))
@@ -82,18 +87,28 @@ const hashCanvas = async () => {
     }
     h = Math.imul(h, 16777619) >>> 0
   }
+  const bw = bmp.width; const bh = bmp.height
   bmp.close()
   // A fully transparent canvas is visually identical whatever its size, and the two builds can differ in
   // backing size on the very first frame while the initial resize settles. Canonicalise it so a blank frame
   // never reports as a rendering difference - the lit counts in the report still catch a wrongly-blank frame.
-  return { hash: lit === 0 ? 0 : (h >>> 0), lit, w: bmp.width, h: bmp.height }
+  return { hash: lit === 0 ? 0 : (h >>> 0), lit, w: bw, h: bh }
+}
+
+// The instance settles its render size over its first couple of renders: the video dimensions arrive with
+// the first manualRender, the box-driven commit lands after it, and each commit resizes - and so blanks - the
+// canvas. Sampling straight away records those blanks as lost frames, which is what jassub#12 was measuring:
+// the leading-blank count is exactly 2 whatever the sample spacing, because it counts renders, not seconds.
+for (let i = 0; i < 3; i++) {
+  await instance.manualRender({ expectedDisplayTime: performance.now(), width: 1920, height: 1080, mediaTime: lo }, true)
+  await new Promise(r => setTimeout(r, SETTLE))
 }
 
 const frames = []
 for (let i = 0; i < SAMPLES; i++) {
   const t = lo + (hi - lo) * (i / (SAMPLES - 1 || 1))
   await instance.manualRender({ expectedDisplayTime: performance.now(), width: 1920, height: 1080, mediaTime: t }, true)
-  await new Promise(r => setTimeout(r, 90))
+  await new Promise(r => setTimeout(r, SETTLE))
   frames.push({ t: +t.toFixed(3), ...await hashCanvas() })
   log(`${TRACK} ${i + 1}/${SAMPLES}`)
 }
