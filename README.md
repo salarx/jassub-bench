@@ -77,6 +77,7 @@ Assets (~45 MB of the upstream demo's own video, subtitles and fonts) are fetche
 | `colour.mjs` | colour-matrix and premultiplied-alpha correctness, identity and forced BT601 |
 | `resource.mjs` | CPU per process (renderer / GPU / browser) and JS heap |
 | `fullscreen.mjs` | element fullscreen, OS-level display takeover, and moves across attached displays |
+| `parallel.mjs` | throughput of a pool of single-threaded jassub instances in Node worker_threads |
 
 Useful env vars: `RUNS` (repetitions, default 3), `CASES` (which builds/renderers), `TRACKS`, `MRH`.
 
