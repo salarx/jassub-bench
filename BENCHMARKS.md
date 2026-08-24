@@ -290,19 +290,50 @@ On a thermally constrained or GPU-contended device that trade may well be the wr
 from each track's own Dialogue range, both builds pinned to the same render size. Hash of the visible pixels
 compared frame by frame, plus screenshots every 8th frame.
 
-| track | webgl2 | unpacked | webgpu | atlas |
+| track | auto | webgl2 | unpacked | canvas2d |
 | --- | --- | --- | --- | --- |
-| variable | identical | identical | identical | identical |
-| high | identical | identical | identical | identical |
-| simple | identical | identical | identical | identical |
-| fate | identical | identical | identical | identical |
-| beastars | identical | identical | identical | identical |
-| kusriya | identical | identical | identical | identical |
+| variable | identical | identical | identical | coverage ok |
+| high | identical | identical | identical | coverage ok |
+| simple | identical | identical | identical | coverage ok |
+| fate | identical | identical | identical | coverage ok |
+| beastars | identical | identical | identical | coverage ok |
+| kusriya | identical (+1 known) | identical | identical | coverage ok |
+
+`auto` is the shipped default, which is now the storage-buffer WebGPU renderer; its one known kusriya frame
+is listed in `KNOWN` in `matrix.mjs`. The `webgpu` and `atlas` columns are gone: the atlas renderer was
+removed, and on a canvas `renderer: 'webgpu'` now resolves to the storage-buffer renderer, so a column for it
+would have been `auto` measured twice.
 
 Screenshots were inspected rather than only counted, because equal hashes prove sameness, not correctness -
 two blank canvases hash the same. Confirmed rendering: beastars' rotated typeset document with handwriting and
 red annotations, fate's karaoke with the active syllable filled mid-word, kusriya's floral karaoke overlays,
 variable's block mid-`\move`.
+
+#### Why canvas2d is coverage-only
+
+It is the fallback for anything without WebGL at all, and the only backend that composites on a 2D context
+rather than in a shader. It differs on both axes the hash covers, so it gets a weaker check than the others.
+
+**Colour.** On a dense beastars frame at 960x540, against WebGL2: 307,311 lit pixels, of which 61,385 (20.0%)
+differ in some channel. 86,186 colour samples differ, and 85,206 of them - 98.9% - differ by exactly 1/255.
+The tail is ~170 samples at delta >= 3, max 127, on antialiased edges where the compositing order compounds.
+
+**Coverage.** More consequential, and only visible once every track was tested. canvas2d loses faint pixels,
+and every differing frame has *fewer* lit pixels than the reference, never more:
+
+| track | worst frame | reference lit | canvas2d lit | delta |
+| --- | --- | --- | --- | --- |
+| fate | 3 | 15,928 | 14,159 | **−11.1%** |
+| kusriya | 1 | 8,114 | 7,434 | **−8.4%** |
+| simple | 18 | 4,871 | 4,862 | −0.19% |
+| beastars | 11 | 272,076 | 271,988 | −0.03% |
+
+An alpha of 1 or 2/255 rounds to nothing through the 8-bit intermediate the 2D path composites into, where
+the shader keeps it in float. The tracks that lose the most are the two with the most soft antialiasing and
+blur. `2d-renderer.ts` is byte-identical to upstream's, so this is upstream behaviour, not the branch's.
+
+The matrix case therefore requires the frame to agree on being blank or not, keep the same backing size, and
+stay within 15% coverage - the ways this fallback could actually break - rather than pretending it matches.
 
 **This matrix earned its keep twice.** Testing on beastars alone would have shipped both bugs below.
 
@@ -318,7 +349,7 @@ which is exactly why the single-track testing missed it. Fixed by encoding a cle
 `resizeCanvas()` early-returns when the requested size already equals the canvas. If a page sizes its own
 canvas element and the computed render size happens to match it, no resize is ever scheduled, so the one-time
 `viewport` + `u_resolution` setup never ran, the vertex shader divided by zero and nothing rasterised. Affected
-WebGL1, WebGL2 and the atlas renderer. Pre-existing; upstream avoids it only because its computed size
+WebGL1, WebGL2 and the since-removed atlas renderer. Pre-existing; upstream avoids it only because its computed size
 generally differs from the element's. Fixed by seeding both from the canvas in `setCanvas`.
 
 ## Change log
@@ -332,13 +363,16 @@ generally differs from the element's. Fixed by seeding both from the canvas in `
 | E | Skip unchanged style writes | `jassub.ts` | resize | within noise | **shipped** |
 | F | Bypass the debounce on discrete jumps (>25% box change) | `jassub.ts` | discrete | fullscreen 85 → 54 ms | **shipped** |
 | G | Start the track fetch concurrently with WASM init and font loading | `worker/worker.ts` | startup | −75 ms (bandwidth-bound, so small) | **shipped** |
-| H | Shelf-pack all bitmaps into one atlas texture, one upload, one draw | `worker/renderers/webgl2-atlas-renderer.ts` | throughput | **−72%** avg, 120 fps misses 24.8% → 96.3% | **rejected**, kept behind `renderer: 'webgl2-atlas'` |
-| I | Batched WebGPU renderer: array texture, `writeTexture` straight from the WASM heap, one bind group, one instanced draw per batch | `worker/renderers/webgpu-batched-renderer.ts` | throughput | **−5.1%** avg, max −8.9%, 120 fps misses 27.8% → 23.5% | **shipped** behind `renderer: 'webgpu'`, not yet auto-selected |
+| H | Shelf-pack all bitmaps into one atlas texture, one upload, one draw | `worker/renderers/webgl2-atlas-renderer.ts` | throughput | **−72%** avg, 120 fps misses 24.8% → 96.3% | **rejected**, and since removed - it was also blank at 1920x1080 under `renderers.mjs` |
+| I | Batched WebGPU renderer: array texture, `writeTexture` straight from the WASM heap, one bind group, one instanced draw per batch | `worker/renderers/webgpu-batched-renderer.ts` | throughput | **−5.1%** avg, max −8.9%, 120 fps misses 27.8% → 23.5% | **superseded and removed** — see R |
 | J | `renderer` option to force a backend | `jassub.ts`, `worker/worker.ts` | — | — | **shipped** (needed for A/B) |
 | K | `rawRenderPacked` + `getImageBuffer`: pack frame metadata into a reused int32 block, read by one `Int32Array` view, instead of an embind object per `ASS_Image` | `JASSUB.cpp`, `worker/worker.ts`, `worker/renderers/webgl2-renderer.ts` | throughput + resource | **−2.5%** avg, **−1.7%** renderer CPU, 120 fps misses 27.3% → 23.3% | **shipped**, default on, `packed: false` to disable |
 | M | Clear the canvas on empty frames in the WebGPU renderer | `worker/renderers/webgpu-batched-renderer.ts` | matrix | fixes stale subtitles, up to 5 frames/track | **shipped** |
 | N | Seed `viewport` + `u_resolution` in `setCanvas` | `worker/renderers/webgl{1,2}-renderer.ts`, atlas | matrix | fixes blank output when the page sizes its own canvas | **shipped** |
 | P | (verification only) real fullscreen enter/exit, two cycles | — | fullscreen | alignment exact at +200ms; dropped frames 5 → 3 over two cycles | **verified** |
+| Q | Storage-buffer WebGPU renderer: bitmaps in one `var<storage, read>` buffer instead of a 64-layer array texture | `worker/renderers/webgpu-buffer-renderer.ts` | renderers, matrix | ~16MB against ~94.7MB for a dense frame, equal or faster | **shipped**, now the browser default |
+| R | Retire the array-texture renderers once the storage buffer caught up | `worker/renderers/webgpu-{batched,headless}-renderer.ts` | backends | array texture **8-10% slower** than the buffer under Deno, 6 runs across 2 tracks, and still ~90.5MB | **removed** — it was kept on an ~8%-faster measurement that the pipelined readback reversed |
+| S | Retire the atlas renderer | `worker/renderers/webgl2-atlas-renderer.ts` | renderers | 6.9ms vs WebGL2's 4.5ms over 3 runs, plus a blank frame at 1920x1080 under `renderers.mjs` | **removed** |
 | O | Add `$(LIBASS_DEPS)` to the worker link rule; tolerate brotli >= 1.1 lib naming; drop the obsolete brotli patch | `Makefile`, `build/patches` | — | build correctness | **shipped** |
 | L | Bump harfbuzz 6.0.0 → 8.5.0 and stop `hb.hh` promoting warnings to errors under newer clang | `lib/harfbuzz`, `Makefile` | throughput + colour | −0.2% (neutral), output bit-identical | **shipped** — required to build at all |
 

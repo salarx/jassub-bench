@@ -34,10 +34,16 @@ const TRACKS = {
 const WANTED = (process.env.TRACKS || Object.keys(TRACKS).join(',')).split(',')
 
 // deno needs its permissions spelled out, and --allow-ffi is what lets a native WebGPU binding load
+const DENO_ARGS = ['run', '--allow-read', '--allow-net', '--allow-env', '--allow-sys', '--allow-ffi', '--unstable-webgpu']
 const RUNTIMES = {
   node: { cmd: 'node', args: [] },
   bun: { cmd: 'bun', args: ['run'] },
-  deno: { cmd: 'deno', args: ['run', '--allow-read', '--allow-net', '--allow-env', '--allow-sys', '--allow-ffi', '--unstable-webgpu'] }
+  deno: { cmd: 'deno', args: DENO_ARGS }
+  // A 'deno-array' case briefly lived here to cover the array-texture renderer, which the browser had
+  // stopped offering. Measuring it is what showed it to be 8-10% slower than the storage buffer rather than
+  // faster, so it was removed from jassub entirely and there is nothing left for this case to select. The
+  // per-run renderer name below is the guard against that happening quietly: a case that resolves to a
+  // different renderer than the one asked for shows up as the same name twice.
 }
 const WANTED_RUNTIMES = (process.env.RUNTIMES || 'node,bun,deno').split(',')
 
@@ -59,7 +65,8 @@ const available = name => {
 }
 
 function render (runtime, opts) {
-  const { cmd, args } = RUNTIMES[runtime]
+  const { cmd, args, renderer } = RUNTIMES[runtime]
+  if (renderer) opts = { ...opts, renderer }
   const r = spawnSync(cmd, [...args, join(HERE, 'backend-render.mjs'), JSON.stringify(opts)], {
     cwd: HERE,
     encoding: 'utf8',
@@ -100,12 +107,13 @@ for (const track of WANTED) {
       results[key] = res
       if (res.error) {
         failures++
-        console.log(`  ${String(w + 'x' + h).padEnd(9)} ${runtime.padEnd(5)} ERROR ${res.error}`)
+        console.log(`  ${String(w + 'x' + h).padEnd(9)} ${runtime.padEnd(10)} ERROR ${res.error}`)
         continue
       }
       const ms = res.frames.reduce((a, f) => a + f.ms, 0) / res.frames.length
       console.log(
-        `  ${String(w + 'x' + h).padEnd(9)} ${runtime.padEnd(5)} ${ms.toFixed(2).padStart(7)}ms/frame  ` +
+        `  ${String(w + 'x' + h).padEnd(9)} ${runtime.padEnd(10)} ${ms.toFixed(2).padStart(7)}ms/frame  ` +
+        `${(res.renderer || '?').padEnd(28)} ` +
         `nonEmpty=${res.frames.filter(f => f.lit > 0).length}/${res.frames.length}  ` +
         `lit=[${res.frames.map(f => f.lit).join(',')}]`
       )

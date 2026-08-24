@@ -2,7 +2,10 @@ import { chromium } from 'playwright'
 import { printMachine } from './machine.mjs'
 const RUNS = +(process.env.RUNS || 3)
 // each entry is label:build:renderer
-const CASES = (process.env.CASES || 'upstream:baseline:auto,patched-array:patched:webgl2,patched-atlas:patched:webgl2-atlas')
+// 'patched-atlas' used to be the third case. The atlas renderer is gone from the branch, and an unknown
+// renderer name resolves to WebGL2 rather than failing - so leaving it would have reported the same backend
+// twice under two labels. 'patched-auto' is the shipped default, which is what that slot should measure.
+const CASES = (process.env.CASES || 'upstream:baseline:auto,patched-array:patched:webgl2,patched-auto:patched:auto')
   .split(',').map(x => { const [label, build, renderer, simd] = x.split(':'); return { label, build, renderer, simd: simd ?? '1' } })
 await printMachine()
 const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--autoplay-policy=no-user-gesture-required'] })

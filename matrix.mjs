@@ -16,10 +16,16 @@ const CASES = [
   { label: 'branch-auto', build: 'patched', renderer: 'auto', packed: '1' },
   { label: 'branch-webgl2', build: 'patched', renderer: 'webgl2', packed: '1' },
   { label: 'branch-unpacked', build: 'patched', renderer: 'webgl2', packed: '0' },
-  { label: 'branch-webgpu', build: 'patched', renderer: 'webgpu', packed: '1' },
-  { label: 'branch-atlas', build: 'patched', renderer: 'webgl2-atlas', packed: '1' }
+  // the fallback for anything without WebGL at all, and the only backend that composites on the 2D context
+  // rather than in a shader. Coverage-only: see coverageOnly below.
+  { label: 'branch-canvas2d', build: 'patched', renderer: 'canvas2d', packed: '1', coverageOnly: true }
   // 'webgpu-buffer' has no row of its own because it is what 'branch-auto' now selects - it is the shipped
   // default. Its one-frame kusriya difference is carried in KNOWN below rather than as a missing case.
+  // 'webgl2-atlas' is gone from the branch: slower than webgl2, pixel-identical where it worked, and blank
+  // at 1920x1080 under renderers.mjs.
+  // 'webgpu' is gone for the same reason as webgpu-buffer: on a canvas it now resolves to the storage-buffer
+  // renderer, so a row for it would have measured branch-auto a second time under a different name. The
+  // array-texture renderer it used to select is still reachable headlessly, under Deno.
 ]
 const EXTRA = (process.env.EXTRA_CASES || '').split(',').filter(Boolean).map(x => {
   const [label, build, renderer, packed] = x.split(':')
@@ -107,16 +113,37 @@ for (const track of TRACKS) {
     if (!f) { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${'-'.padStart(7)} ${'-'.padStart(9)} ${'-'.padStart(9)}  FAILED`); anyDiff = true; continue }
     const nonEmpty = f.filter(x => x.lit > 0).length
     if (!ref || c.label === 'upstream') { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${'ref'.padStart(9)}  -`); continue }
-    const diffs = f.map((x, i) => (!ref[i] || x.hash !== ref[i].hash) ? i : -1).filter(i => i >= 0)
+    // The 2D fallback composites on a canvas context instead of in a shader, and it cannot be held to either
+    // the colour hash or an exact lit count. It loses faint coverage: every differing frame has *fewer* lit
+    // pixels than the reference, never more, because an alpha of 1 or 2/255 rounds to nothing through the
+    // 8-bit intermediate where the shader keeps it in float. Measured worst cases are -11.1% on fate and
+    // -8.4% on kusriya; beastars is -0.03%, and the colour deltas on what does survive are 98.9% a single
+    // step. `2d-renderer.ts` is byte-identical to upstream's, so this is not the branch's to fix.
+    //
+    // So the check is what would actually indicate a broken fallback rather than a faint one: the frame must
+    // agree on being blank or not, keep the same backing size, and stay within COVERAGE_TOLERANCE. A blank
+    // frame, a wrong render size, lost geometry or a collapse in coverage all still fail.
+    const COVERAGE_TOLERANCE = 0.15
+    const coverageBad = (x, r) => {
+      if (!r) return true
+      if (x.w !== r.w || x.h !== r.h) return true
+      if ((x.lit > 0) !== (r.lit > 0)) return true
+      if (!r.lit) return false
+      return Math.abs(x.lit - r.lit) / r.lit > COVERAGE_TOLERANCE
+    }
+    const diffs = c.coverageOnly
+      ? f.map((x, i) => coverageBad(x, ref[i]) ? i : -1).filter(i => i >= 0)
+      : f.map((x, i) => (!ref[i] || x.hash !== ref[i].hash) ? i : -1).filter(i => i >= 0)
     const accepted = diffs.filter(i => known(track, c.label, i))
     const mism = diffs.length - accepted.length
     if (mism) anyDiff = true
     const note = accepted.length ? ` (+${accepted.length} known)` : ''
-    console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${String(mism).padStart(9)}  ${mism ? 'DIFFERS' : 'identical'}${note}`)
+    const verdict = mism ? 'DIFFERS' : (c.coverageOnly ? 'coverage ok' : 'identical')
+    console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${String(mism).padStart(9)}  ${verdict}${note}`)
     for (const i of accepted) console.log(`${' '.repeat(28)}known: frame ${i} - ${known(track, c.label, i).why}`)
   }
 }
 console.log(anyDiff
   ? '\nRESULT: FAIL - at least one case differs' + (SHOTS ? ' (see shots/)' : ' (re-run with SHOTS=1 to capture images)')
-  : '\nRESULT: PASS - all cases pixel-identical to upstream across all tracks')
+  : '\nRESULT: PASS - all cases pixel-identical to upstream across all tracks (canvas2d: coverage only)')
 process.exitCode = anyDiff ? 1 : 0

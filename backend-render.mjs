@@ -53,5 +53,10 @@ for (const t of opts.times) {
   frames.push({ t: +t.toFixed(3), ms: +ms.toFixed(2), ...digest(rgba) })
 }
 
+// Which renderer actually got selected. Asking for one is not the same as getting it: without a native
+// WebGPU binding installed, `renderer: 'webgpu'` quietly composites on the CPU instead, and the run would
+// otherwise look like a passing GPU case that is really the default measured twice.
+const actual = subs._renderer?._gpurender?.constructor?.name ?? 'unknown'
+
 await subs.destroy()
-console.log('__RESULT__' + JSON.stringify({ track: opts.track, width: opts.width, height: opts.height, frames }))
+console.log('__RESULT__' + JSON.stringify({ track: opts.track, width: opts.width, height: opts.height, renderer: actual, frames }))
