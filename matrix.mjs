@@ -11,11 +11,23 @@ import { printMachine } from './machine.mjs'
 const TRACKS = (process.env.TRACKS || 'variable,high,simple,fate,beastars,kusriya').split(',')
 const CASES = [
   { label: 'upstream', build: 'baseline', renderer: 'auto', packed: '1' },
+  // the default path, which is what nearly everyone actually gets - it was untested here until the
+  // default changed from webgl2 to the storage-buffer WebGPU renderer
+  { label: 'branch-auto', build: 'patched', renderer: 'auto', packed: '1' },
   { label: 'branch-webgl2', build: 'patched', renderer: 'webgl2', packed: '1' },
   { label: 'branch-unpacked', build: 'patched', renderer: 'webgl2', packed: '0' },
   { label: 'branch-webgpu', build: 'patched', renderer: 'webgpu', packed: '1' },
   { label: 'branch-atlas', build: 'patched', renderer: 'webgl2-atlas', packed: '1' }
+  // 'webgpu-buffer' is deliberately absent: it renders one kusriya frame differently from every other
+  // backend and is not shipped as a default. Add it back when chasing that, rather than leaving the whole
+  // suite red for a renderer nobody gets by accident.
 ]
+const EXTRA = (process.env.EXTRA_CASES || '').split(',').filter(Boolean).map(x => {
+  const [label, build, renderer, packed] = x.split(':')
+  return { label, build, renderer, packed: packed ?? '1' }
+})
+CASES.push(...EXTRA)
+
 const SAMPLES = +(process.env.SAMPLES || 24)
 // Same trap the other runners warn about: unpinned, the builds can rasterise at different resolutions and
 // every frame reads as a mismatch. Here it turns a passing check into a false failure, so say so loudly.
