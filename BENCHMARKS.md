@@ -351,12 +351,34 @@ The residual is bounded by 255/alpha, which the measurement matches:
 So it is 1/255 on 98.9% of samples and only reaches three digits on pixels too faint to see. On screen the
 stored premultiplied values differ by at most one step; the readback is what amplifies it. Not worth chasing.
 
-A third difference is invisible here by construction: `setColorMatrix` is an empty function on this renderer
-(crbug 40910142), so BT.601↔BT.709 conversion never happens. `matrix.html` drives no video, so there is no
-video colour space and every renderer sits on the identity matrix. `colour.mjs` forces a conversion, which
-makes it the only runner that can see the gap, and it now carries a canvas2d case for exactly that.
+#### Bug: the 2D fallback ignored the colour matrix entirely
 
-**This matrix earned its keep three times.** Testing on beastars alone would have shipped every bug below - and the third only appeared once canvas2d was a case at all, on the two tracks with the softest antialiasing.
+The third difference, and the largest. `setColorMatrix` was an empty function on this renderer, so the YCbCr
+conversion every other backend applies simply never happened here.
+
+No canvas-only harness can see this. `matrix.html` drives no video, so `_videoColorSpace` is undefined,
+`worker.ts` returns before ever calling `setColorMatrix`, and *every* renderer sits on the identity matrix -
+however many tracks are covered. `colour.mjs` forces a non-identity conversion, which makes it the only
+runner in the repo that can, and a canvas2d case there is what surfaced it.
+
+Mean per-channel delta against WebGL2, three timestamps, ~2M lit pixels each:
+
+| | ΔR | ΔG | ΔB |
+| --- | --- | --- | --- |
+| identity (BT709 on BT709) | −0.00 | −0.03 | −0.02 |
+| forced BT601, **before** | **+37.79** | **−41.12** | **+19.12** |
+| forced BT601, **after** | −0.03 | −0.06 | −0.02 |
+
+Before the fix, canvas2d's forced-BT601 hash was byte-identical to its own identity-case hash - nothing was
+being applied - while every GPU renderer's hash moved. At full alpha on every lit pixel, roughly a sixth of
+full range: visibly wrong colour, not an edge artefact.
+
+The in-file comment cited crbug 40910142, which is genuine but concerns the 2D context having no colour-space
+support of its own. That rules out handing the conversion to the canvas, not doing the arithmetic. libass
+gives one RGB triple per `ASS_Image`, so this is a 3x3 per image, not per pixel - free on a path already 15x
+the GPU renderers. Same maths as `CPURenderer`, column-major to match how WGSL builds `mat3x3`.
+
+**This matrix earned its keep three times.** Testing on beastars alone would have shipped every bug below, and the third only appeared once canvas2d was a case at all, on the two tracks with the softest antialiasing. A fourth - the colour matrix - no canvas-only harness can reach at any track count; `colour.mjs` found that one.
 
 #### Bug: WebGPU never cleared an empty frame
 
@@ -393,6 +415,7 @@ generally differs from the element's. Fixed by seeding both from the canvas in `
 | P | (verification only) real fullscreen enter/exit, two cycles | — | fullscreen | alignment exact at +200ms; dropped frames 5 → 3 over two cycles | **verified** |
 | Q | Storage-buffer WebGPU renderer: bitmaps in one `var<storage, read>` buffer instead of a 64-layer array texture | `worker/renderers/webgpu-buffer-renderer.ts` | renderers, matrix | ~16MB against ~94.7MB for a dense frame, equal or faster | **shipped**, now the browser default |
 | R | Retire the array-texture renderers once the storage buffer caught up | `worker/renderers/webgpu-{batched,headless}-renderer.ts` | backends | array texture **8-10% slower** than the buffer under Deno, 6 runs across 2 tracks, and still ~90.5MB | **removed** — it was kept on an ~8%-faster measurement that the pipelined readback reversed |
+| U | Apply the colour matrix in the 2D fallback, which had it as a no-op | `worker/renderers/2d-renderer.ts` | colour | forced-BT601 mean delta from **+37.8, −41.1, +19.1** to −0.03, −0.06, −0.02 | **shipped** |
 | T | Round rather than truncate the alpha byte in the 2D fallback | `worker/renderers/2d-renderer.ts` | matrix | recovers up to **11.1%** of lit pixels on fate, 8.4% on kusriya; lit counts now exact against WebGL2 | **shipped** |
 | S | Retire the atlas renderer | `worker/renderers/webgl2-atlas-renderer.ts` | renderers | 6.9ms vs WebGL2's 4.5ms over 3 runs, plus a blank frame at 1920x1080 under `renderers.mjs` | **removed** |
 | O | Add `$(LIBASS_DEPS)` to the worker link rule; tolerate brotli >= 1.1 lib naming; drop the obsolete brotli patch | `Makefile`, `build/patches` | — | build correctness | **shipped** |

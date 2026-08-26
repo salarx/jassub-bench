@@ -13,10 +13,17 @@ const CASES = [
   // own - an unknown name resolves to WebGL2 rather than failing, so it had quietly become a second copy
   // of newwasm-packed.
   { label: 'newwasm-gpubuf', build: 'patched', renderer: 'webgpu-buffer', packed: '1' },
-  // The 2D fallback is the only backend whose setColorMatrix is a no-op (crbug 40910142), so it is the one
-  // case here that is expected to move when a non-identity conversion is forced. This runner forces one,
-  // which makes it the only place that gap is visible at all - matrix.html drives no video, so there is no
-  // video colour space, and every renderer sits on the identity matrix there.
+  // The 2D fallback used to ignore the colour matrix entirely - setColorMatrix was a no-op - and this is the
+  // only runner that can see that, because it forces a non-identity conversion. matrix.html drives no video,
+  // so there is no video colour space and every renderer sits on the identity matrix there. It now does the
+  // 3x3 itself, per image, which took the forced-BT601 mean delta from +37.79, -41.12, +19.12 to
+  // -0.03, -0.06, -0.02 - the same residual it shows on the identity case.
+  //
+  // Still expectDiff, because that residual is a different mechanism and is not fixable here: ImageData
+  // carries straight alpha, a canvas stores premultiplied, and getImageData un-premultiplies, so this path
+  // pays two lossy conversions against the GPU path's one. It perturbs the hash while being 1/255 on 98.9%
+  // of samples. The dMeanRGBA column above is what to watch - if it leaves that -0.0x band, something real
+  // has changed.
   { label: 'newwasm-canvas2d', build: 'patched', renderer: 'canvas2d', packed: '1', expectDiff: true },
   // separate question: does harfbuzz 8.5.0 change glyph output vs the old wasm?
   { label: 'oldwasm-upstream', build: 'baseline', renderer: 'auto', packed: '1' }
@@ -88,8 +95,10 @@ for (const [key, byCase] of Object.entries(report)) {
 }
 
 // mechanical verdict: within each colour-space case every build must match the first (reference) build.
-// expectDiff cases are measured and printed but do not decide the verdict - canvas2d is known to differ,
-// for reasons that are written down rather than tolerated silently. See EXPECTED below.
+// expectDiff cases are measured and printed but do not decide the verdict. canvas2d carries it: its colour
+// hash cannot match, for a reason written down at the case rather than tolerated silently. Exempting a case
+// explicitly is the point - a backend that is allowed to differ should be visible here, not left out of
+// CASES where nobody would notice it had stopped being checked.
 const EXPECTED = new Set(CASES.filter(c => c.expectDiff).map(c => c.label))
 let bad = 0
 for (const [space, byCase] of Object.entries(report)) {
