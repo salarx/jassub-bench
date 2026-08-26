@@ -113,23 +113,24 @@ for (const track of TRACKS) {
     if (!f) { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${'-'.padStart(7)} ${'-'.padStart(9)} ${'-'.padStart(9)}  FAILED`); anyDiff = true; continue }
     const nonEmpty = f.filter(x => x.lit > 0).length
     if (!ref || c.label === 'upstream') { console.log(`${track.padEnd(10)} ${c.label.padEnd(17)} ${String(f.length).padStart(7)} ${String(nonEmpty).padStart(9)} ${'ref'.padStart(9)}  -`); continue }
-    // The 2D fallback composites on a canvas context instead of in a shader, and it cannot be held to either
-    // the colour hash or an exact lit count. It loses faint coverage: every differing frame has *fewer* lit
-    // pixels than the reference, never more, because an alpha of 1 or 2/255 rounds to nothing through the
-    // 8-bit intermediate where the shader keeps it in float. Measured worst cases are -11.1% on fate and
-    // -8.4% on kusriya; beastars is -0.03%, and the colour deltas on what does survive are 98.9% a single
-    // step. `2d-renderer.ts` is byte-identical to upstream's, so this is not the branch's to fix.
+    // The 2D fallback composites on a canvas context instead of in a shader, so it cannot be held to the
+    // colour hash - but its coverage is now exact, and is checked as such.
     //
-    // So the check is what would actually indicate a broken fallback rather than a faint one: the frame must
-    // agree on being blank or not, keep the same backing size, and stay within COVERAGE_TOLERANCE. A blank
-    // frame, a wrong render size, lost geometry or a collapse in coverage all still fail.
-    const COVERAGE_TOLERANCE = 0.15
+    // It used to lose faint pixels: -11.1% of the lit pixels on the worst fate frame, -8.4% on kusriya,
+    // always fewer and never more. The cause was `((alpha * k) << 24)`, where the shift coerces to int32 and
+    // truncates, while every other renderer writes a float to an rgba8unorm target and rounds. Rounding
+    // instead makes the lit counts match exactly on every track, so an inexact one is now a real regression
+    // rather than a known wart, and this asserts it.
+    //
+    // The colour hash still differs and is not checked. ImageData carries straight alpha, a canvas stores
+    // premultiplied, and getImageData un-premultiplies - two lossy conversions against the GPU path's one.
+    // The residual is bounded by 255/alpha, so it is 1/255 on 98.9% of samples and only reaches three digits
+    // on pixels too faint to see. On screen the stored premultiplied values differ by at most one step; the
+    // readback is what amplifies it.
     const coverageBad = (x, r) => {
       if (!r) return true
       if (x.w !== r.w || x.h !== r.h) return true
-      if ((x.lit > 0) !== (r.lit > 0)) return true
-      if (!r.lit) return false
-      return Math.abs(x.lit - r.lit) / r.lit > COVERAGE_TOLERANCE
+      return x.lit !== r.lit
     }
     const diffs = c.coverageOnly
       ? f.map((x, i) => coverageBad(x, ref[i]) ? i : -1).filter(i => i >= 0)

@@ -9,7 +9,15 @@ const CASES = [
   // control for the SoA change: same wasm, packed path off vs on. must be bit-identical.
   { label: 'newwasm-unpacked', build: 'patched', renderer: 'webgl2', packed: '0' },
   { label: 'newwasm-packed', build: 'patched', renderer: 'webgl2', packed: '1' },
-  { label: 'newwasm-webgpu', build: 'patched', renderer: 'webgpu', packed: '1' },
+  // the shipped default. This said renderer: 'webgpu' until that value stopped naming a renderer of its
+  // own - an unknown name resolves to WebGL2 rather than failing, so it had quietly become a second copy
+  // of newwasm-packed.
+  { label: 'newwasm-gpubuf', build: 'patched', renderer: 'webgpu-buffer', packed: '1' },
+  // The 2D fallback is the only backend whose setColorMatrix is a no-op (crbug 40910142), so it is the one
+  // case here that is expected to move when a non-identity conversion is forced. This runner forces one,
+  // which makes it the only place that gap is visible at all - matrix.html drives no video, so there is no
+  // video colour space, and every renderer sits on the identity matrix there.
+  { label: 'newwasm-canvas2d', build: 'patched', renderer: 'canvas2d', packed: '1', expectDiff: true },
   // separate question: does harfbuzz 8.5.0 change glyph output vs the old wasm?
   { label: 'oldwasm-upstream', build: 'baseline', renderer: 'auto', packed: '1' }
 ]
@@ -79,13 +87,19 @@ for (const [key, byCase] of Object.entries(report)) {
   }
 }
 
-// mechanical verdict: within each colour-space case every build must match the first (reference) build
+// mechanical verdict: within each colour-space case every build must match the first (reference) build.
+// expectDiff cases are measured and printed but do not decide the verdict - canvas2d is known to differ,
+// for reasons that are written down rather than tolerated silently. See EXPECTED below.
+const EXPECTED = new Set(CASES.filter(c => c.expectDiff).map(c => c.label))
 let bad = 0
 for (const [space, byCase] of Object.entries(report)) {
   const base = Object.values(byCase)[0]
   for (const [label, shots] of Object.entries(byCase)) {
     shots.forEach((s, i) => {
-      if (s.hash !== base[i].hash) { bad++; console.log(`  MISMATCH ${space}/${label} @ t=${s.mediaTime}`) }
+      if (s.hash === base[i].hash) return
+      if (EXPECTED.has(label)) { console.log(`  expected-diff ${space}/${label} @ t=${s.mediaTime}  dLit=${(100 * (s.lit - base[i].lit) / (base[i].lit || 1)).toFixed(3)}%`); return }
+      bad++
+      console.log(`  MISMATCH ${space}/${label} @ t=${s.mediaTime}`)
     })
   }
 }

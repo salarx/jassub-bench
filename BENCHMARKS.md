@@ -309,33 +309,54 @@ two blank canvases hash the same. Confirmed rendering: beastars' rotated typeset
 red annotations, fate's karaoke with the active syllable filled mid-word, kusriya's floral karaoke overlays,
 variable's block mid-`\move`.
 
-#### Why canvas2d is coverage-only
+#### Bug: the 2D fallback truncated coverage instead of rounding it
 
-It is the fallback for anything without WebGL at all, and the only backend that composites on a 2D context
-rather than in a shader. It differs on both axes the hash covers, so it gets a weaker check than the others.
+Adding canvas2d as a matrix case is what found this. It is the fallback for anything without WebGL at all,
+and it was losing faint pixels - every differing frame with *fewer* lit pixels than the GPU renderers, never
+more:
 
-**Colour.** On a dense beastars frame at 960x540, against WebGL2: 307,311 lit pixels, of which 61,385 (20.0%)
-differ in some channel. 86,186 colour samples differ, and 85,206 of them - 98.9% - differ by exactly 1/255.
-The tail is ~170 samples at delta >= 3, max 127, on antialiased edges where the compositing order compounds.
-
-**Coverage.** More consequential, and only visible once every track was tested. canvas2d loses faint pixels,
-and every differing frame has *fewer* lit pixels than the reference, never more:
-
-| track | worst frame | reference lit | canvas2d lit | delta |
+| track | worst frame | webgl2 lit | canvas2d lit | delta |
 | --- | --- | --- | --- | --- |
 | fate | 3 | 15,928 | 14,159 | **−11.1%** |
 | kusriya | 1 | 8,114 | 7,434 | **−8.4%** |
 | simple | 18 | 4,871 | 4,862 | −0.19% |
 | beastars | 11 | 272,076 | 271,988 | −0.03% |
 
-An alpha of 1 or 2/255 rounds to nothing through the 8-bit intermediate the 2D path composites into, where
-the shader keeps it in float. The tracks that lose the most are the two with the most soft antialiasing and
-blur. `2d-renderer.ts` is byte-identical to upstream's, so this is upstream behaviour, not the branch's.
+The cause is one operator. `((alpha * k) << 24)` puts the alpha byte in place with a shift, and a shift
+coerces to int32, which truncates toward zero. Every other renderer writes a float to an `rgba8unorm` target,
+where the spec requires round-to-nearest. Truncating biases every coverage value down half a step, and
+one-directionally: a pixel whose alpha lands under 1.0 disappears, and none can ever appear.
 
-The matrix case therefore requires the frame to agree on being blank or not, keep the same backing size, and
-stay within 15% coverage - the ways this fallback could actually break - rather than pretending it matches.
+Confirmed twice over. Replaying both rules across the real `ASS_Image` set of the worst frames: fate frame 3
+has 15,928 lit pixels under the round rule, of which 1,769 are lit *only* under it — and 15,928 − 1,769 =
+14,159, exactly what the renderer was drawing. Counting the other direction gives **zero** on every track.
+Then empirically: `Math.round` takes the frames whose lit counts disagree with WebGL2 from 21, 19, 14 and 2
+to none at all. It costs nothing — 71.4/72.2ms against 72.6/72.5/73.0ms, noise on a path already 15x the GPU
+renderers. The matrix case now asserts exact lit equality rather than a tolerance.
 
-**This matrix earned its keep twice.** Testing on beastars alone would have shipped both bugs below.
+#### Why canvas2d is still coverage-only, not hash-identical
+
+Colour differs for a separate reason the fix does not touch. `ImageData` carries straight alpha, a canvas
+stores premultiplied, and `getImageData` un-premultiplies — two lossy conversions where the GPU path has one.
+The residual is bounded by 255/alpha, which the measurement matches:
+
+| pixel alpha | differing pixels | max channel delta | 255/alpha |
+| --- | --- | --- | --- |
+| ≤ 2 | 2 | 127 | 127 |
+| ≤ 8 | 18 | 64 | 64 |
+| ≤ 32 | 70 | 22 | 23 |
+| ≤ 128 | 141 | 8 | 8 |
+| ≤ 255 | 61,448 | 3 | 2 |
+
+So it is 1/255 on 98.9% of samples and only reaches three digits on pixels too faint to see. On screen the
+stored premultiplied values differ by at most one step; the readback is what amplifies it. Not worth chasing.
+
+A third difference is invisible here by construction: `setColorMatrix` is an empty function on this renderer
+(crbug 40910142), so BT.601↔BT.709 conversion never happens. `matrix.html` drives no video, so there is no
+video colour space and every renderer sits on the identity matrix. `colour.mjs` forces a conversion, which
+makes it the only runner that can see the gap, and it now carries a canvas2d case for exactly that.
+
+**This matrix earned its keep three times.** Testing on beastars alone would have shipped every bug below - and the third only appeared once canvas2d was a case at all, on the two tracks with the softest antialiasing.
 
 #### Bug: WebGPU never cleared an empty frame
 
@@ -372,6 +393,7 @@ generally differs from the element's. Fixed by seeding both from the canvas in `
 | P | (verification only) real fullscreen enter/exit, two cycles | — | fullscreen | alignment exact at +200ms; dropped frames 5 → 3 over two cycles | **verified** |
 | Q | Storage-buffer WebGPU renderer: bitmaps in one `var<storage, read>` buffer instead of a 64-layer array texture | `worker/renderers/webgpu-buffer-renderer.ts` | renderers, matrix | ~16MB against ~94.7MB for a dense frame, equal or faster | **shipped**, now the browser default |
 | R | Retire the array-texture renderers once the storage buffer caught up | `worker/renderers/webgpu-{batched,headless}-renderer.ts` | backends | array texture **8-10% slower** than the buffer under Deno, 6 runs across 2 tracks, and still ~90.5MB | **removed** — it was kept on an ~8%-faster measurement that the pipelined readback reversed |
+| T | Round rather than truncate the alpha byte in the 2D fallback | `worker/renderers/2d-renderer.ts` | matrix | recovers up to **11.1%** of lit pixels on fate, 8.4% on kusriya; lit counts now exact against WebGL2 | **shipped** |
 | S | Retire the atlas renderer | `worker/renderers/webgl2-atlas-renderer.ts` | renderers | 6.9ms vs WebGL2's 4.5ms over 3 runs, plus a blank frame at 1920x1080 under `renderers.mjs` | **removed** |
 | O | Add `$(LIBASS_DEPS)` to the worker link rule; tolerate brotli >= 1.1 lib naming; drop the obsolete brotli patch | `Makefile`, `build/patches` | — | build correctness | **shipped** |
 | L | Bump harfbuzz 6.0.0 → 8.5.0 and stop `hb.hh` promoting warnings to errors under newer clang | `lib/harfbuzz`, `Makefile` | throughput + colour | −0.2% (neutral), output bit-identical | **shipped** — required to build at all |
