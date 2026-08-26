@@ -23,9 +23,12 @@ const CASES = [
   // default. Its one-frame kusriya difference is carried in KNOWN below rather than as a missing case.
   // 'webgl2-atlas' is gone from the branch: slower than webgl2, pixel-identical where it worked, and blank
   // at 1920x1080 under renderers.mjs.
-  // 'webgpu' is gone for the same reason as webgpu-buffer: on a canvas it now resolves to the storage-buffer
-  // renderer, so a row for it would have measured branch-auto a second time under a different name. The
-  // array-texture renderer it used to select is still reachable headlessly, under Deno.
+  // 'webgpu' is gone too, though not for that reason: it does not name a renderer at all any more, and the
+  // forced-name chain in worker.ts tests 'webgpu-buffer', 'canvas2d' and 'webgl1' before falling through to
+  // WebGL2 - so it silently selects WebGL2, not the storage buffer. Probed on a live instance: 'webgpu' and
+  // 'webgl2' both come back with texArrayWidth 256, where 'webgpu-buffer' reports dataCapacity instead. A
+  // row for it would have measured branch-webgl2 twice. The array-texture renderer it used to select is
+  // still reachable headlessly, under Deno.
 ]
 const EXTRA = (process.env.EXTRA_CASES || '').split(',').filter(Boolean).map(x => {
   const [label, build, renderer, packed] = x.split(':')

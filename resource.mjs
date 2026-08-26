@@ -11,7 +11,7 @@ const CASES = (process.env.CASES || [
   'upstream:baseline:auto:1:1',
   'newwasm-unpacked:patched:webgl2:1:0',
   'newwasm-packed:patched:webgl2:1:1',
-  'newwasm-webgpu:patched:webgpu:1:1'
+  'newwasm-gpubuf:patched:webgpu-buffer:1:1'
 ].join(',')).split(',').map(x => {
   const [label, build, renderer, simd, packed] = x.split(':')
   return { label, build, renderer, simd, packed }

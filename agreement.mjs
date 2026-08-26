@@ -1,7 +1,7 @@
 // Do subtitle glyphs land on the video's colours the way src-over says they should?
 //
 //   node agreement.mjs
-//   CASES=patched:webgpu node agreement.mjs
+//   CASES=patched:webgpu-buffer node agreement.mjs
 //   TIMES=3.35,3.62 MATRIX=bt601 node agreement.mjs
 //
 // Motivated by an observed difference between machines: glyph colour appeared to sit correctly on the
@@ -32,7 +32,7 @@ import { inflateSync } from 'node:zlib'
 import { printMachine } from './machine.mjs'
 
 const ORIGIN = process.env.BENCH_ORIGIN || 'http://localhost:5199'
-const CASES = (process.env.CASES || 'baseline:auto,patched:webgl2,patched:webgpu')
+const CASES = (process.env.CASES || 'baseline:auto,patched:webgl2,patched:webgpu-buffer')
   .split(',').filter(Boolean).map(x => { const [build, renderer] = x.split(':'); return { build, renderer } })
 const TIMES = (process.env.TIMES || '3.35,3.62,3.90').split(',').map(Number)
 const TRACK = process.env.TRACK || 'beastars'
