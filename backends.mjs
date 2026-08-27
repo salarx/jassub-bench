@@ -59,18 +59,26 @@ const range = sub => {
   return isFinite(lo) ? [lo, hi] : [0, 10]
 }
 
+// bun is a .cmd shim on Windows and Node will not spawn one without a shell - it fails with EINVAL, which
+// this used to read as "not installed" and skip the whole runtime silently.
+const WIN = process.platform === 'win32'
+
 const available = name => {
   const { cmd } = RUNTIMES[name]
-  return spawnSync(cmd, ['--version'], { stdio: 'ignore' }).status === 0
+  return spawnSync(cmd, ['--version'], { stdio: 'ignore', shell: WIN }).status === 0
 }
 
 function render (runtime, opts) {
   const { cmd, args, renderer } = RUNTIMES[runtime]
   if (renderer) opts = { ...opts, renderer }
-  const r = spawnSync(cmd, [...args, join(HERE, 'backend-render.mjs'), JSON.stringify(opts)], {
+  // base64 so the payload survives the shell that Windows needs; the path is quoted for the same reason
+  const script = join(HERE, 'backend-render.mjs')
+  const arg = WIN ? Buffer.from(JSON.stringify(opts)).toString('base64') : JSON.stringify(opts)
+  const r = spawnSync(cmd, [...args, WIN ? `"${script}"` : script, arg], {
     cwd: HERE,
     encoding: 'utf8',
-    maxBuffer: 1 << 28
+    maxBuffer: 1 << 28,
+    shell: WIN
   })
   const line = (r.stdout || '').split('\n').find(l => l.startsWith('__RESULT__'))
   if (!line) {

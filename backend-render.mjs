@@ -5,8 +5,19 @@
 //
 //   node backend-render.mjs '<json opts>'
 //
-// opts: { build, track, sub, fonts[], width, height, times[], threads, renderer }
-const opts = JSON.parse(globalThis.Deno ? Deno.args[0] : process.argv[2])
+// opts: { build, track, sub, fonts[], width, height, times[], threads, renderer, mode }
+//
+// mode defaults to 'serial' - renderFrame per timestamp, which is what a one-shot caller gets. 'pipelined'
+// drives renderFrames instead, which overlaps each frame's readback with the next frame's rasterisation.
+// The distinction only matters where there is a readback to overlap, i.e. the GPU path: timing a GPU
+// renderer serially charges it the full copy every frame and reads as far slower than it is in use.
+// The argument is JSON, or the same JSON base64-encoded. Windows ships bun as a .cmd shim, which Node
+// refuses to spawn without a shell - and going through a shell makes a raw JSON argument a quoting hazard,
+// so the driver sends base64 there. Both accepted, so running this by hand still works.
+const raw = globalThis.Deno ? Deno.args[0] : process.argv[2]
+const opts = JSON.parse(raw.trimStart().startsWith('{')
+  ? raw
+  : new TextDecoder().decode(Uint8Array.from(atob(raw), c => c.charCodeAt(0))))
 
 const HERE = new URL('.', import.meta.url)
 const entry = new URL(`dist/${opts.build}/${globalThis.Deno ? 'deno' : 'node'}.js`, HERE).href
@@ -46,11 +57,23 @@ const digest = rgba => {
 await subs.renderFrame(opts.times[0])
 
 const frames = []
-for (const t of opts.times) {
+if (opts.mode === 'pipelined') {
+  // one timestamp per yield, so the per-frame cost is wall time across the whole run divided by frames -
+  // there is no meaningful per-frame boundary once the readbacks overlap
   const t0 = performance.now()
-  const rgba = await subs.renderFrame(t)
-  const ms = performance.now() - t0
-  frames.push({ t: +t.toFixed(3), ms: +ms.toFixed(2), ...digest(rgba) })
+  let i = 0
+  for await (const rgba of subs.renderFrames(opts.times)) {
+    frames.push({ t: +opts.times[i++].toFixed(3), ...digest(rgba) })
+  }
+  const per = (performance.now() - t0) / frames.length
+  for (const fr of frames) fr.ms = +per.toFixed(2)
+} else {
+  for (const t of opts.times) {
+    const t0 = performance.now()
+    const rgba = await subs.renderFrame(t)
+    const ms = performance.now() - t0
+    frames.push({ t: +t.toFixed(3), ms: +ms.toFixed(2), ...digest(rgba) })
+  }
 }
 
 // Which renderer actually got selected. Asking for one is not the same as getting it: without a native
@@ -59,4 +82,4 @@ for (const t of opts.times) {
 const actual = subs._renderer?._gpurender?.constructor?.name ?? 'unknown'
 
 await subs.destroy()
-console.log('__RESULT__' + JSON.stringify({ track: opts.track, width: opts.width, height: opts.height, renderer: actual, frames }))
+console.log('__RESULT__' + JSON.stringify({ track: opts.track, width: opts.width, height: opts.height, renderer: actual, mode: opts.mode ?? 'serial', frames }))
