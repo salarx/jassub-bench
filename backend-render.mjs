@@ -5,7 +5,7 @@
 //
 //   node backend-render.mjs '<json opts>'
 //
-// opts: { build, track, sub, fonts[], width, height, times[], threads, renderer, mode }
+// opts: { build, track, sub, fonts[], width, height, times[], threads, renderer, mode, gpuReadbackBudgetMs }
 //
 // mode defaults to 'serial' - renderFrame per timestamp, which is what a one-shot caller gets. 'pipelined'
 // drives renderFrames instead, which overlaps each frame's readback with the next frame's rasterisation.
@@ -32,7 +32,8 @@ const subs = await JASSUB.create({
   subUrl,
   fonts,
   threads: opts.threads,
-  ...(opts.renderer ? { renderer: opts.renderer } : {})
+  ...(opts.renderer ? { renderer: opts.renderer } : {}),
+  ...(opts.gpuReadbackBudgetMs != null ? { gpuReadbackBudgetMs: opts.gpuReadbackBudgetMs } : {})
 })
 
 // FNV-1a over the RGBA, plus a lit count. Same shape as the browser harness' hashCanvas, so a backend frame
